@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="de-CH">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f7f8">
+  <title>Swiss AR Sandbox · Kamera-Test</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand"><span class="brand-icon" aria-hidden="true">▨</span><div><strong>Swiss AR Sandbox</strong><span>Hardware-Beta · D415</span></div></div>
+    <div class="version">BETA 0.5 · SCHRITT 1 / 4</div>
+  </header>
+  <main class="shell">
+    <div class="heading"><div class="eyebrow">KAMERA · USB · ECHTE DATEN</div><h1>D415 im Browser testen</h1><p>Kein Simulationsmodus. Wir prüfen ausschliesslich, welche echten Streams und USB-Schnittstellen der Browser unter Windows bereitstellt.</p></div>
+    <section class="status-strip" aria-label="Statusanzeigen">
+      <div><small>Browser</small><strong id="browser-status">Wird geprüft …</strong></div>
+      <div><small>Kamera</small><strong id="camera-status">Nicht gestartet</strong></div>
+      <div><small>Tiefenwerte Z16</small><strong id="depth-status" class="caution">Nicht nachgewiesen</strong></div>
+      <div><small>Auflösung</small><strong id="resolution">–</strong></div>
+      <div><small>Bildrate</small><strong id="fps">–</strong></div>
+    </section>
+
+    <div class="layout">
+      <section class="panel camera-panel" aria-labelledby="preview-heading">
+        <div class="panel-title"><div><h2 id="preview-heading">1 · Kamerabild</h2><p>Browser-Videostream mit Echtzeit-Pixelprobe</p></div><span class="live-indicator" id="live-indicator">OFFLINE</span></div>
+        <div class="preview"><video id="video" autoplay playsinline muted></video><div class="preview-placeholder" id="placeholder"><span>◉</span><strong>Noch kein Kamerabild</strong><small>USB-Kamera anschliessen und Zugriff erlauben</small></div><div class="preview-overlay"><span id="stream-label">KEIN STREAM</span><span id="stream-size">–</span></div></div>
+        <div class="controls">
+          <button id="permission-button" class="primary">Kamerazugriff erlauben</button>
+          <button id="stop-button" class="secondary" disabled>Bild stoppen</button>
+          <label class="select-label" for="camera-select">Videoquelle</label>
+          <select id="camera-select" disabled><option value="">Noch keine Geräte</option></select>
+          <button id="select-button" class="secondary" disabled>Auswahl öffnen</button>
+        </div>
+        <div class="metrics">
+          <div><small>Bildmitte RGB</small><strong id="rgb-values">–</strong></div>
+          <div><small>Helligkeit (0–255)</small><strong id="luma-value">–</strong></div>
+          <div><small>Videoformat</small><strong id="format-value">–</strong></div>
+        </div>
+        <div class="histogram-heading"><strong>Helligkeitsverteilung des Kamerabilds</strong><small>Browser-Pixelwerte, keine Tiefenmessung</small></div>
+        <canvas id="histogram" height="78" width="640" aria-label="Histogramm der dekodierten Kamerabildhelligkeit"></canvas>
+      </section>
+      <aside class="side-stack">
+        <section class="panel" aria-labelledby="usb-heading">
+          <div class="panel-title"><div><h2 id="usb-heading">2 · USB-Gerät</h2><p>RealSense D415 identifizieren</p></div></div>
+          <div class="usb-state" id="usb-status">Noch keine USB-Abfrage.</div>
+          <div class="row-buttons"><button id="usb-button" class="secondary">D415 über USB auswählen</button><button id="usb-list-button" class="subtle">Zugriff prüfen</button></div>
+          <div id="usb-details" class="usb-details">Vendor-ID 8086 · D415 Product-ID 0AD3. Der Zugriff auf USB-Videostreams ist durch Chrome geschützt; wir ändern keine Treiber.</div>
+        </section>
+        <section class="panel warning-panel" aria-labelledby="limit-heading"><div class="panel-title"><h2 id="limit-heading">Wichtige Grenze</h2></div><p>Ein sichtbares RGB- oder Infrarotbild ist <b>kein</b> 16-Bit-Tiefenmodell. Der Browser liefert über die normale Kamera-API meist nur dekodierte Videopixel, nicht die millimetergenauen Z16-Daten der D415.</p><p>Diese Beta behauptet deshalb <b>keinen</b> erfolgreichen Tiefenzugriff, solange wir ihn nicht technisch nachgewiesen haben.</p></section>
+        <section class="panel" aria-labelledby="report-heading"><div class="panel-title"><div><h2 id="report-heading">3 · Diagnose speichern</h2><p>Für den nächsten Entwicklungsschritt</p></div></div><div class="row-buttons"><button id="download-button" class="primary">Diagnose herunterladen</button><button id="snapshot-button" class="secondary" disabled>Bild als PNG</button></div><p class="data-note">Die Bilder bleiben lokal. Es wird nichts an einen Server gesendet. Der Bericht enthält Gerätebezeichnungen, Browserdaten, Bildauflösung, Status und Fehlermeldungen – keine Seriennummer und kein Kamerabild.</p></section>
+      </aside>
+    </div>
+    <section class="panel events"><div class="events-head"><h2>Diagnoseprotokoll</h2><button id="clear-button" class="subtle">Protokoll leeren</button></div><div id="logs" role="log" aria-live="polite"></div></section>
+    <footer><span>Swiss AR Sandbox · GitHub Pages · ohne Installation</span><span>2 Höhenmodell · 3 Kartengrafik · 4 Projektorkalibrierung folgen erst nach dem Kameratest</span></footer>
+  </main>
+</body>
+</html>
