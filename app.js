@@ -1,178 +1,68 @@
-'use strict';
-// Swiss AR Sandbox: Hardwareprobe, keine Sand-Simulation und keine Tiefendaten-Fälschung.
-const $ = (id) => document.getElementById(id);
-const state = {
-  stream: null, raf: null, frames: 0, lastTick: performance.now(),
-  fps: 0, pixel: null, usb: null, errors: [], entries: [],
-  cameras: [], actualCamera: '', width: 0, height: 0
-};
-const sampleCanvas = document.createElement('canvas'); sampleCanvas.width = 160; sampleCanvas.height = 90;
-const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true });
-const hist = $('histogram').getContext('2d');
-function log(message, type = 'info') {
-  state.entries.push({ time: new Date().toISOString(), type, message });
-  const entry = document.createElement('div'); entry.className = `log ${type}`;
-  const time = document.createElement('time'); time.textContent = new Date().toLocaleTimeString('de-CH');
-  const messageEl = document.createElement('span'); messageEl.textContent = message;
-  entry.append(time, messageEl); $('logs').prepend(entry);
+import {rawZ16,stats,colorize} from './lib/depth.js';
+import {readPNG16} from './lib/png16.js';
+import {readPLY} from './lib/ply.js';
+import {readNPY} from './lib/npy.js';
+import {readCSV} from './lib/csv.js';
+const $=(id)=>document.getElementById(id);
+const fileInput=$('file'), canvas=$('depth-canvas');
+let loaded=null,filtered=null,computedStats=null,currentFile=null,rangeMin=0,rangeMax=0;
+function status(message,isError=false){$('status').textContent=message;$('status').className='status'+(isError?' error':loaded?' good':'');}
+function nice(x){return Number(x).toLocaleString('de-CH');}
+function enable(active){for(const id of ['autorange','median','save-png','save-json'])$(id).disabled=!active; $('min').disabled=!active || $('autorange').checked; $('max').disabled=!active || $('autorange').checked;}
+function updateStats(){if(!loaded){$('m-format').textContent='–';$('m-size').textContent='–';$('m-valid').textContent='–';$('m-depth').textContent='–';return;}
+  $('m-format').textContent=loaded.format;$('m-size').textContent=`${nice(loaded.width)} × ${nice(loaded.height)}`;
+  $('m-valid').textContent=`${nice(computedStats.valid)} / ${nice(computedStats.total)} (${(computedStats.ratio*100).toFixed(1)} %)`;
+  $('m-depth').textContent=`${nice(computedStats.min)}–${nice(computedStats.max)} mm`;
 }
-function fail(prefix, err) {
-  const info = `${prefix}: ${err?.name || 'Fehler'} – ${err?.message || String(err)}`;
-  state.errors.push(info); log(info, 'error');
+function render(){if(!loaded)return;
+  if(!$('autorange').checked){rangeMin=Number($('min').value);rangeMax=Number($('max').value);}
+  if(!Number.isFinite(rangeMin)||!Number.isFinite(rangeMax)||rangeMin>=rangeMax){status('Der Farbbereich benötigt einen kleineren Anfangs- als Endwert.',true);return;}
+  filtered=colorize(canvas,loaded,rangeMin,rangeMax,$('median').checked);
+  $('scale-far').textContent=`${nice(rangeMax)} mm · weit`;$('scale-near').textContent=`${nice(rangeMin)} mm · nah`;
 }
-function stopStream() {
-  if (state.raf !== null) cancelAnimationFrame(state.raf);
-  state.raf = null;
-  if (state.stream) state.stream.getTracks().forEach(t => t.stop());
-  state.stream = null; $('video').pause(); $('video').srcObject = null;
-  $('video').classList.remove('active'); $('placeholder').hidden = false;
-  $('camera-status').textContent = 'Nicht gestartet'; $('camera-status').classList.remove('ok');
-  $('live-indicator').textContent = 'OFFLINE'; $('live-indicator').classList.remove('live');
-  $('stream-label').textContent = 'KEIN STREAM'; $('stream-size').textContent = '–';
-  $('fps').textContent = '–'; $('rgb-values').textContent = '–'; $('luma-value').textContent = '–';
-  $('resolution').textContent = '–'; $('format-value').textContent = '–';
-  $('stop-button').disabled = true; $('snapshot-button').disabled = true;
-  state.frames = 0; state.pixel = null; state.actualCamera = ''; state.lastTick = 0;
-  drawEmptyHistogram();
+function defaultsFromStats(){const min=computedStats.near, max=computedStats.far;rangeMin=Math.max(1,min-((max-min)<30?15:0));rangeMax=Math.max(rangeMin+30,max+((max-min)<30?15:0));$('min').value=rangeMin;$('max').value=rangeMax;}
+async function loadFile(file){if(!file)return;
+  // Reset before each import so a failed file cannot masquerade as the previous result.
+  loaded=null;filtered=null;computedStats=null;currentFile=null;enable(false);$('data-pill').textContent='LADE …';$('data-pill').className='pill';$('empty').hidden=false;$('scale').hidden=true;$('readout').hidden=true;
+  status(`Lese ${file.name} …`);await new Promise(resolve=>requestAnimationFrame(resolve));
+  try{
+    const ext=file.name.split('.').pop().toLowerCase();let result;
+    const units=Number($('units').value),width=Number($('raw-width').value),height=Number($('raw-height').value);
+    if(['raw','bin','z16'].includes(ext))result=rawZ16(await file.arrayBuffer(),width,height,units);
+    else if(ext==='png')result=await readPNG16(await file.arrayBuffer(),units);
+    else if(ext==='npy')result=readNPY(await file.arrayBuffer(),units);
+    else if(ext==='ply')result=readPLY(await file.arrayBuffer());
+    else if(ext==='csv'||ext==='txt')result=readCSV(await file.text());
+    else throw new Error('Dateityp nicht unterstützt. Bitte RAW, PLY, 16-Bit-Graustufen-PNG, NPY oder CSV auswählen.');
+    const measurements=stats(result.data);
+    if(!measurements.valid)throw new Error('Die Datei enthält keine gültigen Tiefenmesswerte (alle Pixel sind 0).');
+    loaded=result;currentFile=file;computedStats=measurements;
+    $('autorange').checked=true;$('median').checked=false;defaultsFromStats();enable(true);
+    $('empty').hidden=true;$('scale').hidden=false;$('data-pill').textContent='ECHTE MESSWERTE';$('data-pill').className='pill good';
+    $('subtitle').textContent=`${file.name} · ${result.note}`;updateStats();render();
+    let warning=measurements.ratio<.5?`Achtung: Nur ${(measurements.ratio*100).toFixed(1)} % der Rasterzellen enthalten Messwerte. `:'';
+    status(`${warning}${file.name} eingelesen: ${nice(measurements.valid)} gültige Messpunkte. Entfernungen werden in Millimetern dargestellt. ${result.note}`);
+  }catch(error){$('data-pill').textContent='IMPORTFEHLER';$('subtitle').textContent='Noch keine gültige Tiefenmessung geladen';updateStats();status(error.message||String(error),true);}
 }
-async function refreshCameras() {
-  if (!navigator.mediaDevices?.enumerateDevices) { log('Diese Browserumgebung erlaubt keine Geräteauflistung.', 'error'); return; }
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  state.cameras = devices.filter(d => d.kind === 'videoinput').map(d => ({ id: d.deviceId, name: d.label || 'Kamera ohne Namen' }));
-  const select = $('camera-select');
-  const previous = select.value;
-  select.replaceChildren();
-  if (!state.cameras.length) {
-    const option = document.createElement('option'); option.value = ''; option.textContent = 'Keine Kamera gefunden'; select.appendChild(option);
-  } else {
-    for (const d of state.cameras) {
-      const option = document.createElement('option'); option.value = d.id; option.textContent = d.name;
-      select.appendChild(option);
-    }
-    const wanted = state.cameras.find(d => /realsense|d415|depth camera 415/i.test(d.name));
-    select.value = state.cameras.some(d => d.id === previous) ? previous : (wanted?.id || state.cameras[0].id);
-  }
-  select.disabled = state.cameras.length === 0;
-  $('select-button').disabled = state.cameras.length === 0;
-  log(`${state.cameras.length} Videoquelle(n) vom Browser gemeldet.`, 'info');
-}
-async function startCamera(cameraId = null) {
-  if (!navigator.mediaDevices?.getUserMedia) { log('getUserMedia nicht verfügbar. HTTPS / GitHub Pages und Chrome/Edge verwenden.', 'error'); return; }
-  stopStream();
-  try {
-    const constraints = cameraId ? {video:{deviceId:{exact:cameraId},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}},audio:false}
-       : {video:{width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}},audio:false};
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    state.stream = stream;
-    $('video').srcObject = stream;
-    await $('video').play();
-    const track = stream.getVideoTracks()[0];
-    const settings = track.getSettings();
-    state.actualCamera = track.label || '(ohne Bezeichnung)';
-    state.width = settings.width || $('video').videoWidth;
-    state.height = settings.height || $('video').videoHeight;
-    $('camera-status').textContent = 'Videostream aktiv'; $('camera-status').classList.add('ok');
-    $('live-indicator').textContent = 'LIVE'; $('live-indicator').classList.add('live');
-    $('video').classList.add('active'); $('placeholder').hidden = true;
-    $('resolution').textContent = `${state.width} × ${state.height}`;
-    $('stream-label').textContent = state.actualCamera;
-    $('stream-size').textContent = `${state.width} × ${state.height}`;
-    $('format-value').textContent = 'Videopixel (RGB)';
-    state.fps = settings.frameRate || null; $('fps').textContent = state.fps ? `${state.fps} (Gerät)` : 'nicht gemeldet';
-    $('stop-button').disabled = false; $('snapshot-button').disabled = false;
-    await refreshCameras();
-    if (settings.deviceId && state.cameras.some(d => d.id === settings.deviceId)) $('camera-select').value = settings.deviceId;
-    log(`Stream geöffnet: ${state.actualCamera}, ${state.width} × ${state.height}, ${settings.frameRate || '?'} fps (angefordert: max. 1280 × 720 / 30).`, 'ok');
-    if (!/realsense|d415|depth camera 415/i.test(state.actualCamera)) log('Achtung: Der aktive Stream ist nicht eindeutig als D415 bezeichnet.', 'info');
-    state.lastTick = 0; state.frames = 0;
-    state.raf = requestAnimationFrame(updatePixels);
-  } catch(err) { fail('Kamera konnte nicht geöffnet werden', err); $('camera-status').textContent = 'Verbindung fehlgeschlagen'; }
-}
-function drawEmptyHistogram() {hist.clearRect(0,0,640,78);hist.fillStyle='#d8e0e4';hist.fillRect(10,70,620,1);}
-function updatePixels(now) {
-  if (!state.stream) return;
-  const video = $('video');
-  if (video.readyState >= 2 && now - state.lastTick >= 100) {
-    state.lastTick = now;
-    sampleCtx.drawImage(video,0,0,sampleCanvas.width,sampleCanvas.height);
-    const image = sampleCtx.getImageData(0,0,sampleCanvas.width,sampleCanvas.height);
-    const pixels = image.data;
-    const cx = (45*160+80)*4, r=pixels[cx],g=pixels[cx+1],b=pixels[cx+2];
-    const luma = Math.round(.2126*r+.7152*g+.0722*b);
-    state.pixel={r,g,b,luma};
-    $('rgb-values').textContent = `${r}, ${g}, ${b}`;
-    $('luma-value').textContent = `${luma}`;
-    const bins = new Uint32Array(64);
-    for(let j=0;j<pixels.length;j+=4){const l=Math.min(63,Math.floor((.2126*pixels[j]+.7152*pixels[j+1]+.0722*pixels[j+2])/4));bins[l]++;}
-    const max=Math.max(...bins,1);
-    hist.clearRect(0,0,640,78);hist.fillStyle='#ebf2f5';hist.fillRect(0,0,640,78);
-    hist.fillStyle='#327c9a';
-    for(let i=0;i<64;i++)hist.fillRect(i*10,77-bins[i]/max*67,8,bins[i]/max*67);
-    state.frames++;
-  }
-  // Pixelanalyse auf ca. 10 Hz begrenzt. Die gemeldete Kamera-Bildrate steht separat oben.
-  state.raf = requestAnimationFrame(updatePixels);
-}
-async function listGrantedUsb() {
-  if (!navigator.usb?.getDevices) { log('WebUSB wird von diesem Browser nicht unterstützt.', 'error'); $('usb-status').textContent='WebUSB nicht unterstützt'; return; }
-  try {
-    const devices=await navigator.usb.getDevices();
-    const found=devices.filter(d=>d.vendorId===0x8086 && d.productId===0x0AD3);
-    if(found.length){state.usb=found[0]; showUsb(found[0]); log('Bereits erlaubte RealSense D415 im Browser gefunden.', 'ok');}
-    else { $('usb-status').textContent='Noch kein D415-USB-Zugriff erlaubt'; log('Keine zuvor erlaubte D415 gefunden. «D415 über USB auswählen» anklicken.');}
-  } catch(err){fail('USB-Berechtigung nicht abfragbar',err);}
-}
-function showUsb(device) {
-  const hex=(x,n=4)=>x?.toString(16).toUpperCase().padStart(n,'0') ?? '?';
-  $('usb-status').textContent=`${device.productName||'USB-Gerät'} erkannt`;
-  const configs = device.configurations||[];
-  const lines=[];
-  for(const c of configs){for(const i of c.interfaces||[]){for(const a of i.alternates||[]){lines.push(`Interface ${i.interfaceNumber}: Klasse 0x${hex(a.interfaceClass,2)}, Unterklasse 0x${hex(a.interfaceSubclass,2)}`);}}}
-  $('usb-details').textContent=`Hersteller: ${device.manufacturerName||'–'} · VID: 0x${hex(device.vendorId)} · PID: 0x${hex(device.productId)} · ${lines.length?lines.join(' | '):'USB-Gerät sichtbar, keine Schnittstellendetails'}\nVideo-Schnittstellen (Klasse 0x0E) sind durch WebUSB geschützt. Kein Versuch, Treiber zu verändern oder diese Sperre zu umgehen.`;
-}
-async function chooseUsb() {
-  if (!navigator.usb?.requestDevice){log('USB-Auswahl in diesem Browser nicht verfügbar. Chrome oder Edge über HTTPS verwenden.','error');return;}
-  try {
-    const device=await navigator.usb.requestDevice({filters:[{vendorId:0x8086,productId:0x0AD3}]});
-    state.usb=device;showUsb(device);
-    log(`USB-Gerät ausgewählt: ${device.productName||'D415'} (VID 8086 / PID 0AD3). Das bestätigt noch KEINEN Z16-Tiefenzugriff.`, 'ok');
-  } catch(err) {if (err.name==='NotFoundError') log('USB-Auswahl abgebrochen oder keine passende D415 gefunden.'); else fail('USB-Auswahl fehlgeschlagen',err);}
-}
-function report(){
-  const track=state.stream?.getVideoTracks()[0];
-  const settings=track?.getSettings() || {};
-  const safeSettings=Object.fromEntries(Object.entries(settings).filter(([k])=>k!=='deviceId' && k!=='groupId'));
-  return {
-    project:'Swiss AR Sandbox',version:'0.5',stage:'1 – Browser-Diagnose',at:new Date().toISOString(),
-    urlLocation:location.protocol+'//'+location.host+location.pathname,
-    browser:navigator.userAgent,secureContext:isSecureContext,mediaDevices:!!navigator.mediaDevices,
-    webUsb:!!navigator.usb,usbD415:state.usb?{manufacturerName:state.usb.manufacturerName,productName:state.usb.productName,vendorId:state.usb.vendorId,productId:state.usb.productId, interfaces:(state.usb.configurations||[]).flatMap(c=>c.interfaces?.flatMap(i=>i.alternates?.map(a=>({number:i.interfaceNumber,class:a.interfaceClass,subclass:a.interfaceSubclass})))||[])}:null,
-    videoSources:state.cameras.map(c=>({name:c.name})),
-    activeVideo:track?{name:track.label,settings:safeSettings,resolution:{width:state.width,height:state.height},measuredPreviewFps:state.fps,pixelAtCenter:state.pixel}:null,
-    depthZ16:{verified:false,explanation:'Web API liefert dekodiertes Video, keine nachweisbaren 16-Bit-Z16-Tiefenwerte.'},
-    errors:state.errors,logs:state.entries
-  };
-}
-function downloadData(content,type,name){const blob=new Blob([content],{type});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);}
-function saveReport(){downloadData(JSON.stringify(report(),null,2),'application/json','swiss-ar-sandbox-d415-browser-diagnose.json');log('JSON-Diagnose lokal gespeichert.', 'ok');}
-function saveSnapshot(){if(!state.stream)return; const c=document.createElement('canvas');c.width=$('video').videoWidth;c.height=$('video').videoHeight;c.getContext('2d').drawImage($('video'),0,0);c.toBlob(blob=>{if(!blob)return;const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='d415-browser-videobild.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000)},'image/png');log('Bild lokal als PNG gespeichert.', 'ok');}
-$('permission-button').addEventListener('click',()=>startCamera());
-$('select-button').addEventListener('click',()=>startCamera($('camera-select').value));
-$('stop-button').addEventListener('click',()=>{stopStream();log('Videostream beendet.')});
-$('usb-button').addEventListener('click',chooseUsb);
-$('usb-list-button').addEventListener('click',listGrantedUsb);
-$('download-button').addEventListener('click',saveReport);
-$('snapshot-button').addEventListener('click',saveSnapshot);
-$('clear-button').addEventListener('click',()=>{$('logs').replaceChildren();state.entries=[]});
-window.addEventListener('beforeunload',stopStream);
-(function init(){
-  drawEmptyHistogram();
-  const isChrome=/Chrome\//.test(navigator.userAgent)||/Edg\//.test(navigator.userAgent);
-  $('browser-status').textContent=isChrome?'Chrome/Edge erkannt':'Browser prüfen';
-  if(!isSecureContext)log('WARNUNG: Für den Kamerazugriff HTTPS verwenden (GitHub Pages).','error');
-  else log('Sichere Browserumgebung vorhanden (HTTPS / localhost).','ok');
-  if(!isChrome)log('Empfehlung: Auf Windows Chrome oder Edge verwenden.');
-  if(!navigator.mediaDevices?.getUserMedia)log('Kein Browser-Kamerazugriff verfügbar.','error');
-  if(!navigator.usb)log('WebUSB nicht vorhanden – die USB-Identifikation wird nicht verfügbar sein.');
-  log('Tiefenstatus: Z16 NICHT nachgewiesen. Keine künstlichen Tiefenbilder.');
-})();
+function filenameSuffix(ext){const basename=(currentFile?.name||'tiefendaten').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9_-]+/g,'_');return `${basename}_swissar_depth.${ext}`;}
+function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+$('dropzone').addEventListener('click',()=>fileInput.click());$('dropzone').addEventListener('keydown',(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();fileInput.click();}});
+fileInput.addEventListener('change',()=>{const file=fileInput.files?.[0];if(file)loadFile(file);fileInput.value='';});
+$('dropzone').addEventListener('dragover',(e)=>{e.preventDefault();$('dropzone').classList.add('drag');});
+$('dropzone').addEventListener('dragleave',()=>$('dropzone').classList.remove('drag'));
+$('dropzone').addEventListener('drop',(e)=>{e.preventDefault();$('dropzone').classList.remove('drag');if(e.dataTransfer?.files?.[0])loadFile(e.dataTransfer.files[0]);});
+$('autorange').addEventListener('change',()=>{const auto=$('autorange').checked;$('min').disabled=auto;$('max').disabled=auto;if(auto)defaultsFromStats();render();});
+$('min').addEventListener('change',render);$('max').addEventListener('change',render);$('median').addEventListener('change',render);
+canvas.addEventListener('pointermove',(e)=>{
+  if(!loaded)return;
+  const r=canvas.getBoundingClientRect(),x=Math.min(loaded.width-1,Math.max(0,Math.floor((e.clientX-r.left)/r.width*loaded.width))),y=Math.min(loaded.height-1,Math.max(0,Math.floor((e.clientY-r.top)/r.height*loaded.height))),index=y*loaded.width+x;
+  const d=loaded.data[index],f=filtered?.[index];
+  $('readout').hidden=false;$('readout').textContent=`x ${x}, y ${y} · ${d?`${nice(d)} mm`:'ungültig'}${f&&f!==d?` · gefiltert ${nice(f)} mm`:''}`;
+});
+canvas.addEventListener('pointerleave',()=>$('readout').hidden=true);
+$('save-png').addEventListener('click',()=>{if(!loaded)return;canvas.toBlob(blob=>{if(blob)download(blob,filenameSuffix('png'));},'image/png');});
+$('save-json').addEventListener('click',()=>{if(!loaded)return;
+  const report={project:'Swiss AR Sandbox',version:'0.6',step:'1 · Echte Tiefendaten visualisieren',time:new Date().toISOString(),file:currentFile?.name,bytes:currentFile?.size,format:loaded.format,sourceNote:loaded.note,width:loaded.width,height:loaded.height,validPixels:computedStats.valid,totalPixels:computedStats.total,validPercent:Math.round(computedStats.ratio*10000)/100,depthMinMm:computedStats.min,depthMaxMm:computedStats.max,percentile02Mm:computedStats.near,percentile98Mm:computedStats.far,colorRangeMm:{near:rangeMin,far:rangeMax},median3x3:$('median').checked,limitations:['Bildschirmgrafik ist keine Original-Z16-Datei','Kein Live-Z16-Zugriff über GitHub Pages nachgewiesen','Kein kalibriertes Höhenmodell','PLY wird anhand der X/Y-Positionen orthografisch gerastert']};
+  download(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}),filenameSuffix('json'));
+});
+if(!(window.DecompressionStream)){status('Hinweis: 16-Bit-PNG benötigt einen aktuellen Chrome- oder Edge-Browser.',true);}

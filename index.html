@@ -3,58 +3,83 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f6f7f8">
-  <title>Swiss AR Sandbox · Kamera-Test</title>
+  <meta name="theme-color" content="#f7f8fa">
+  <title>Swiss AR Sandbox · Beta 0.6 · Tiefendaten</title>
   <link rel="stylesheet" href="./styles.css">
-  <script src="./app.js" defer></script>
+  <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <header class="site-header">
-    <div class="brand"><span class="brand-icon" aria-hidden="true">▨</span><div><strong>Swiss AR Sandbox</strong><span>Hardware-Beta · D415</span></div></div>
-    <div class="version">BETA 0.5 · SCHRITT 1 / 4</div>
+  <header class="header">
+    <a href="./" class="brand"><span class="logo">▤</span><span><b>SWISS AR SANDBOX</b><small>Hardwareentwicklung · GitHub Pages</small></span></a>
+    <div class="header-right"><a href="./kamera/" class="header-link">Kameradiagnose 0.5 ↗</a><span class="version">BETA 0.6</span></div>
   </header>
   <main class="shell">
-    <div class="heading"><div class="eyebrow">KAMERA · USB · ECHTE DATEN</div><h1>D415 im Browser testen</h1><p>Kein Simulationsmodus. Wir prüfen ausschliesslich, welche echten Streams und USB-Schnittstellen der Browser unter Windows bereitstellt.</p></div>
-    <section class="status-strip" aria-label="Statusanzeigen">
-      <div><small>Browser</small><strong id="browser-status">Wird geprüft …</strong></div>
-      <div><small>Kamera</small><strong id="camera-status">Nicht gestartet</strong></div>
-      <div><small>Tiefenwerte Z16</small><strong id="depth-status" class="caution">Nicht nachgewiesen</strong></div>
-      <div><small>Auflösung</small><strong id="resolution">–</strong></div>
-      <div><small>Bildrate</small><strong id="fps">–</strong></div>
-    </section>
-
-    <div class="layout">
-      <section class="panel camera-panel" aria-labelledby="preview-heading">
-        <div class="panel-title"><div><h2 id="preview-heading">1 · Kamerabild</h2><p>Browser-Videostream mit Echtzeit-Pixelprobe</p></div><span class="live-indicator" id="live-indicator">OFFLINE</span></div>
-        <div class="preview"><video id="video" autoplay playsinline muted></video><div class="preview-placeholder" id="placeholder"><span>◉</span><strong>Noch kein Kamerabild</strong><small>USB-Kamera anschliessen und Zugriff erlauben</small></div><div class="preview-overlay"><span id="stream-label">KEIN STREAM</span><span id="stream-size">–</span></div></div>
-        <div class="controls">
-          <button id="permission-button" class="primary">Kamerazugriff erlauben</button>
-          <button id="stop-button" class="secondary" disabled>Bild stoppen</button>
-          <label class="select-label" for="camera-select">Videoquelle</label>
-          <select id="camera-select" disabled><option value="">Noch keine Geräte</option></select>
-          <button id="select-button" class="secondary" disabled>Auswahl öffnen</button>
+    <div class="intro">
+      <div class="eyebrow">ECHTE DATEN · KEINE SIMULATION</div>
+      <h1>Tiefenmessungen sichtbar machen</h1>
+      <p>Importiere eine echte D415-Aufnahme. Die Anwendung liest originale Messwerte ein, zeigt Entfernungen in Millimetern und erzeugt daraus eine farbige Tiefenkarte. Alles geschieht lokal in deinem Browser.</p>
+    </div>
+    <nav class="steps" aria-label="Entwicklungsphasen">
+      <div class="step active"><span class="step-num">01</span><span><strong>Tiefendaten</strong><small>Datei importieren & prüfen</small></span></div>
+      <div class="step"><span class="step-num">02</span><span><strong>Höhenmodell</strong><small>Referenzfläche & Raster</small></span></div>
+      <div class="step"><span class="step-num">03</span><span><strong>Kartengrafik</strong><small>Höhenlinien & swisstopo</small></span></div>
+      <div class="step"><span class="step-num">04</span><span><strong>Kalibrierung</strong><small>Kamera & Projektor</small></span></div>
+    </nav>
+    <div class="workbench">
+      <section class="panel map-panel" aria-labelledby="map-title">
+        <div class="panel-head">
+          <div><h2 id="map-title">Messdatenansicht</h2><p id="subtitle">Noch keine Tiefenmessung geladen</p></div>
+          <span class="pill" id="data-pill">KEINE DATEN</span>
         </div>
-        <div class="metrics">
-          <div><small>Bildmitte RGB</small><strong id="rgb-values">–</strong></div>
-          <div><small>Helligkeit (0–255)</small><strong id="luma-value">–</strong></div>
-          <div><small>Videoformat</small><strong id="format-value">–</strong></div>
+        <div class="viewer" id="viewer">
+          <canvas id="depth-canvas" width="1280" height="720" aria-label="Farbige Tiefendatenkarte"></canvas>
+          <div class="empty" id="empty">
+            <div class="empty-symbol">▥</div>
+            <strong>Keine Messdaten geladen</strong>
+            <span>Öffne eine originale Z16-Datei oder eine 3D-Punktwolke aus dem RealSense Viewer.</span>
+          </div>
+          <div class="readout" id="readout" hidden>–</div>
         </div>
-        <div class="histogram-heading"><strong>Helligkeitsverteilung des Kamerabilds</strong><small>Browser-Pixelwerte, keine Tiefenmessung</small></div>
-        <canvas id="histogram" height="78" width="640" aria-label="Histogramm der dekodierten Kamerabildhelligkeit"></canvas>
+        <div class="scale" id="scale" hidden><span id="scale-far">Weiter entfernt</span><div class="scale-ramp"></div><span id="scale-near">Näher an der Kamera</span></div>
+        <div class="stats">
+          <div><small>Dateiformat</small><b id="m-format">–</b></div>
+          <div><small>Auflösung</small><b id="m-size">–</b></div>
+          <div><small>Gültige Pixel</small><b id="m-valid">–</b></div>
+          <div><small>Entfernung (Messbereich)</small><b id="m-depth">–</b></div>
+        </div>
+        <div class="viewer-footer"><span id="cursor-hint">Mit der Maus über die Karte fahren, um den Abstand anzuzeigen.</span><span>0 = ungültige Messung (schwarz)</span></div>
       </section>
-      <aside class="side-stack">
-        <section class="panel" aria-labelledby="usb-heading">
-          <div class="panel-title"><div><h2 id="usb-heading">2 · USB-Gerät</h2><p>RealSense D415 identifizieren</p></div></div>
-          <div class="usb-state" id="usb-status">Noch keine USB-Abfrage.</div>
-          <div class="row-buttons"><button id="usb-button" class="secondary">D415 über USB auswählen</button><button id="usb-list-button" class="subtle">Zugriff prüfen</button></div>
-          <div id="usb-details" class="usb-details">Vendor-ID 8086 · D415 Product-ID 0AD3. Der Zugriff auf USB-Videostreams ist durch Chrome geschützt; wir ändern keine Treiber.</div>
+      <aside class="side">
+        <section class="panel controls-panel">
+          <div class="panel-head"><div><h2>1 · Aufnahme importieren</h2><p>Messwerte, keine Screenshots</p></div></div>
+          <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Echte Tiefendaten auswählen"><span class="upload-icon">↑</span><b>Datei auswählen oder ablegen</b><span>Z16 .raw / .bin · .ply · Graustufen-PNG 16 Bit · .npy · .csv</span></div>
+          <input id="file" type="file" hidden accept=".raw,.bin,.z16,.ply,.png,.npy,.csv,.txt"/>
+          <div class="settings-row split">
+            <label>RAW-Breite<input id="raw-width" type="number" min="1" max="4096" step="1" value="1280"></label>
+            <label>RAW-Höhe<input id="raw-height" type="number" min="1" max="4096" step="1" value="720"></label>
+          </div>
+          <label class="settings-row">Z16-Skalierung (mm pro Einheit)<input id="units" type="number" step="0.001" min="0.001" max="10" value="1"><span class="help">D415 meist 1 mm je Z16-Schritt; bei abweichender Gerätekonfiguration anpassen.</span></label>
+          <div class="info-inline">Eine aus dem Viewer exportierte <b>PLY-Punktwolke</b> enthält metrische 3D-Koordinaten und ist auch ohne RAW-Aufnahme importierbar. Für die möglichst genaue 2D-Tiefenkarte bleibt Z16 vorzuziehen.</div>
         </section>
-        <section class="panel warning-panel" aria-labelledby="limit-heading"><div class="panel-title"><h2 id="limit-heading">Wichtige Grenze</h2></div><p>Ein sichtbares RGB- oder Infrarotbild ist <b>kein</b> 16-Bit-Tiefenmodell. Der Browser liefert über die normale Kamera-API meist nur dekodierte Videopixel, nicht die millimetergenauen Z16-Daten der D415.</p><p>Diese Beta behauptet deshalb <b>keinen</b> erfolgreichen Tiefenzugriff, solange wir ihn nicht technisch nachgewiesen haben.</p></section>
-        <section class="panel" aria-labelledby="report-heading"><div class="panel-title"><div><h2 id="report-heading">3 · Diagnose speichern</h2><p>Für den nächsten Entwicklungsschritt</p></div></div><div class="row-buttons"><button id="download-button" class="primary">Diagnose herunterladen</button><button id="snapshot-button" class="secondary" disabled>Bild als PNG</button></div><p class="data-note">Die Bilder bleiben lokal. Es wird nichts an einen Server gesendet. Der Bericht enthält Gerätebezeichnungen, Browserdaten, Bildauflösung, Status und Fehlermeldungen – keine Seriennummer und kein Kamerabild.</p></section>
+        <section class="panel controls-panel">
+          <div class="panel-head"><div><h2>2 · Darstellung</h2><p>Originalwerte bleiben unverändert</p></div></div>
+          <div class="settings-row split">
+            <label>Farbskala, von (mm)<input id="min" type="number" min="0" step="1" value="600" disabled></label>
+            <label>Bis (mm)<input id="max" type="number" min="0" step="1" value="1900" disabled></label>
+          </div>
+          <div class="settings-row inline-row"><label class="check"><input id="autorange" type="checkbox" checked disabled> Bereich automatisch (2.–98. Perzentil)</label></div>
+          <div class="settings-row inline-row"><label class="check"><input id="median" type="checkbox" disabled> 3×3-Medianfilter</label></div>
+          <div class="settings-row split buttons"><button id="save-png" disabled>Darstellung als PNG</button><button id="save-json" disabled>Messbericht als JSON</button></div>
+          <div id="status" class="status" role="status" aria-live="polite">Bereit für den Import echter Tiefendaten.</div>
+        </section>
+        <section class="panel notice">
+          <h2>GitHub-Beta ≠ D415-Live-Z16</h2>
+          <p>Der direkte, unveränderte Z16-Livestream ist in Chrome über die normale Video-API nicht verfügbar. Diese Version verarbeitet echte <b>aufgezeichnete</b> Messdaten, ohne einen lokalen Dienst vorzutäuschen.</p>
+          <p>Die bereits getestete <a href="./kamera/">USB-/Videodiagnose</a> bleibt separat erhalten. Ein korrektes Tiefenmodell erfordert echte Abstandswerte, nicht die Helligkeit eines Videos.</p>
+        </section>
       </aside>
     </div>
-    <section class="panel events"><div class="events-head"><h2>Diagnoseprotokoll</h2><button id="clear-button" class="subtle">Protokoll leeren</button></div><div id="logs" role="log" aria-live="polite"></div></section>
-    <footer><span>Swiss AR Sandbox · GitHub Pages · ohne Installation</span><span>2 Höhenmodell · 3 Kartengrafik · 4 Projektorkalibrierung folgen erst nach dem Kameratest</span></footer>
+    <footer>Swiss AR Sandbox · Beta 0.6 · Keine Telemetrie · Keine Uploads · Messdateien verlassen den Browser nicht</footer>
   </main>
 </body>
 </html>
